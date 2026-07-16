@@ -310,3 +310,188 @@ cat <<EOF > package.json
   }
 }
 EOF
+==========================
+# Kubernetes Login Page Deployment Guide
+
+This guide details the step-by-step setup required to build, containerize, and deploy a lightweight Node.js login application onto a Kubernetes cluster.
+
+---
+
+## Step 1: Create the Project Files
+
+Create the following files in your current working directory (`/home/vagrant`).
+
+### 1. `package.json`
+Run this command to create the Node.js project configuration:
+```bash
+cat <<EOF > package.json
+{
+  "name": "login-page",
+  "version": "1.0.0",
+  "description": "Simple K8s login app",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
+EOF
+```
+
+### 2. `server.js` (Backend Logic)
+```javascript
+const express = require('express');
+const path = require('path');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Serve the HTML file
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Authentication endpoint
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+    // Replace this with your actual database authentication logic
+    if (username === 'admin' && password === 'password123') {
+        res.status(200).json({ message: "Login successful!" });
+    } else {
+        res.status(401).json({ error: "Invalid credentials" });
+    }
+});
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+```
+
+### 3. `index.html` (Frontend Form)
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login Page</title>
+    <style>
+        body { font-family: Arial; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f0f2f5; } 
+        form { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <form action="/login" method="POST">
+        <h2>Login Portal</h2>
+        <input type="text" name="username" placeholder="Username" required><br><br>
+        <input type="password" name="password" placeholder="Password" required><br><br>
+        <button type="submit">Sign In</button>
+    </form>
+</body>
+</html>
+```
+
+---
+
+## Step 2: Containerize the Code
+
+Create a file named `Dockerfile` to package your application context.
+
+### `Dockerfile`
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production
+COPY server.js index.html ./
+EXPOSE 3000
+CMD ["node", "server.js"]
+```
+
+### Build and Push Commands
+Execute these commands to build the container image and upload it to Docker Hub:
+```bash
+# Build the docker container
+docker build -t your-dockerhub-username/login-page:v1 .
+
+# Upload it to your registry
+docker push your-dockerhub-username/login-page:v1
+```
+
+---
+
+## Step 3: Kubernetes Deployment Manifests
+
+Create a file named `login-deployment.yaml` to manage your running container pods.
+
+### `login-deployment.yaml`
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: login-page-deployment
+  labels:
+    app: login-page
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: login-page
+  template:
+    metadata:
+      labels:
+        app: login-page
+    spec:
+      containers:
+      - name: login-app
+        image: your-dockerhub-username/login-page:v1 # Replace with your real image link
+        ports:
+        - containerPort: 3000
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "250m"
+            memory: "128Mi"
+```
+
+---
+
+## Step 4: Expose the Login Page to the Web
+
+Create a file named `login-service.yaml` to route external web traffic to your deployment.
+
+### `login-service.yaml`
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: login-page-service
+spec:
+  type: LoadBalancer # Change to NodePort if testing locally on Vagrant/Minikube
+  selector:
+    app: login-page
+  ports:
+    - protocol: TCP
+      port: 80         # The port accessible to internet traffic
+      targetPort: 3000 # The port your application container listens to
+```
+
+---
+
+## Step 5: Deploy and Access
+
+Execute the following commands sequentially using `kubectl` to deploy the app components:
+
+```bash
+# 1. Apply the application deployment configuration
+kubectl apply -f login-deployment.yaml
+
+# 2. Apply the routing service configuration
+kubectl apply -f login-service.yaml
+
+# 3. Monitor the deployment progress until status is running
+kubectl get pods
+
+# 4. Extract the external network IP address assigned to your app
+kubectl get service login-page-service
+```
